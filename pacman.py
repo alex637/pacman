@@ -94,6 +94,14 @@ class Pacman(GameObject):
         self.velocity = 4.0 / 10.0
         self.special_abilities = [0 for i in range(3)]
         self.points = 0
+        self.food_left = 0
+        for i in range(map.h):
+            for j in range(map.w):
+                if map.map[i][j] == 3:
+                    self.food_left += 1
+        self.check()
+        self.path = self.find_path()    # there is some food left
+
 
     def update(self):
         super(Pacman, self).game_tick()
@@ -124,6 +132,9 @@ class Pacman(GameObject):
         elif data == 3:    # food
             self.x, self.y = x, y
             self.points += 1
+            self.food_left -= 1
+            self.check()
+            self.path = self.find_path()  # there is still some food
             map.used(self.x, self.y)
         elif data == 4:     # artifact_1 - extra 5 points
             self.x, self.y = x, y
@@ -135,6 +146,9 @@ class Pacman(GameObject):
             map.used(self.x, self.y)
         else:
             self.x, self.y = x, y
+
+        if (floor(self.x), floor(self.y)) == self.path[1]:
+            self.path.pop(1)
         self.set_coord(self.x, self.y)
 
 
@@ -146,11 +160,46 @@ class Pacman(GameObject):
                 else:           # end of the game
                     print('You met a ghost. Game over.')
                     sys.exit(0)
+        if self.food_left == 0:
+            print("Congratulations!!! Level passed! You get {0} points.".format(self.points))
+            sys.exit(0)
+
+    def find_path(self):
+        n = map.h
+        m = map.w
+        special_map = [[None] * m for i in range(n)]
+        for i in range(n):
+            for j in range(m):
+                if map.get(i, j) == 3:      # food
+                    special_map[i][j] = 2
+                elif map.get(i, j) == 1:    # unbreakable wall
+                    special_map[i][j] = 0
+                else:
+                    special_map[i][j] = 1   # possible to visit
+
+        paths = [[[]] * m for i in range(n)]
+        paths[floor(self.x)][floor(self.y)].append((floor(self.x), floor(self.y)))
+        q = [(floor(self.x), floor(self.y))]
+        while q:
+            current_x, current_y = q.pop(0)
+            for x, y in [(current_x - 1, current_y), (current_x, current_y - 1),
+                         (current_x, current_y + 1), (current_x + 1, current_y)]:
+                if 0 <= x < n and 0 <= y < m:
+                    if special_map[x][y] == 2:
+                        return paths[current_x][current_y] + [(x, y)]
+                    elif special_map[x][y]:
+                        q.append((x, y))
+                        paths[x][y] = paths[current_x][current_y] +[(x, y)]
+                        special_map[x][y] = 0
+        # food cannot be reached, so:
+        print("You cannot get any more food. Your score is {0} points.".format(self.points))
+        sys.exit(0)
 
 
 class Map:
     def __init__(self, w, h, tile_size, file=None):
         self.wall_image = pygame.image.load("./resources/wall.png")
+        self.breakable_wall_image = pygame.image.load("./resources/breakable_wall.png")
         self.food_image = pygame.image.load("./resources/food.jpg")
         self.map = [[0] * w for i in range(h)]
         self.w = w
@@ -161,15 +210,8 @@ class Map:
                 for i in range(h):
                     line = f.readline()
                     self.map[i] = list(int(x) for x in line.rstrip().split())
-        """
-        self.map[8] = [2 for i in range(w)]
-        for i in range(7):
-            self.map[i][3] = 2
-        """
-        self.map[8][3] = 3
 
-    # Функция возвращает обьект в данной точке карты
-    def get(self, x, y):
+    def get(self, x, y):    # Функция возвращает обьект в данной точке карты
         return self.map[floor(y)][floor(x)]
 
     def draw(self):
@@ -180,7 +222,7 @@ class Map:
                     screen.blit(self.wall_image, (j * self.tile_size, i * self.tile_size,
                                                   self.tile_size, self.tile_size))
                 elif c == 2:    # breakable wall
-                    screen.blit(self.wall_image, (j * self.tile_size, i * self.tile_size,
+                    screen.blit(self.breakable_wall_image, (j * self.tile_size, i * self.tile_size,
                                                   self.tile_size, self.tile_size))
                 elif c == 3:    # food (standard white spot) - hamburger
                     screen.blit(self.food_image, (j * self.tile_size, i * self.tile_size,
@@ -190,33 +232,25 @@ class Map:
         # breaking the wall or eating the food or getting the artifact
         self.map[floor(y)][floor(x)] = 0
 
-    def check(self):
-        j = 0
-        while j < self.h:
-            for i in self.map[j]:
-                if i == 3:
-                    return
-            j += 1
-        else:
-            print("Congratulations!!! Level passed!")
-            sys.exit(0)
 
-
-def process_events(events, packman):
+def process_events(events, pacman):
+    pacman.direction = 0
+    d = {K_LEFT: 3, K_RIGHT: 1, K_UP: 4, K_DOWN: 2}
     for event in events:
         if (event.type == QUIT) or (event.type == KEYDOWN and event.key == K_ESCAPE):
             sys.exit(0)
-        elif event.type == KEYDOWN:
-            if event.key == K_LEFT:
-                packman.direction = 3
-            elif event.key == K_RIGHT:
-                packman.direction = 1
-            elif event.key == K_UP:
-                packman.direction = 4
-            elif event.key == K_DOWN:
-                packman.direction = 2
-            elif event.key == K_SPACE:
-                packman.direction = 0
+        elif event.type == KEYDOWN and event.key in d:
+            pacman.direction = d[event.key]
+    if pacman.direction == 0:
+        x, y = pacman.find_path()[1]
+        if x > pacman.x:
+            pacman.direction = 1  # to the right
+        elif x < floor(pacman.x):
+            pacman.direction = 3  # to the left
+        elif y > pacman.y:
+            pacman.direction = 2  # downwards
+        else:
+            pacman.direction = 4  # upwards
 
 
 if __name__ == '__main__':
@@ -242,4 +276,3 @@ if __name__ == '__main__':
         pacman.draw(screen)
         pygame.display.update()
         pacman.check()
-        map.check()
