@@ -101,6 +101,7 @@ class Pacman(GameObject):
                     self.food_left += 1
         self.check()
         self.path = self.find_path()    # there is some food left
+        self._i = 0     # starting index for the path
 
 
     def update(self):
@@ -134,8 +135,9 @@ class Pacman(GameObject):
             self.points += 1
             self.food_left -= 1
             self.check()
-            self.path = self.find_path()  # there is still some food
             map.used(self.x, self.y)
+            self.path = self.find_path()  # there is still some food
+            self._i = 0
         elif data == 4:     # artifact_1 - extra 5 points
             self.x, self.y = x, y
             self.points += 5
@@ -147,8 +149,8 @@ class Pacman(GameObject):
         else:
             self.x, self.y = x, y
 
-        if (floor(self.x), floor(self.y)) == self.path[1]:
-            self.path.pop(1)
+        if self.path and (floor(self.x), floor(self.y)) == self.path[self._i]:
+            self._i += 1
         self.set_coord(self.x, self.y)
 
 
@@ -177,16 +179,18 @@ class Pacman(GameObject):
                 else:
                     special_map[i][j] = 1   # possible to visit
 
-        paths = [[[]] * m for i in range(n)]
+        paths = [[[] for j in range(m)] for i in range(n)]
         paths[floor(self.x)][floor(self.y)].append((floor(self.x), floor(self.y)))
         q = [(floor(self.x), floor(self.y))]
-        while q:
-            current_x, current_y = q.pop(0)
+        i = 0
+        while i < len(q):
+            current_x, current_y = q[i]
+            i += 1
             for x, y in [(current_x - 1, current_y), (current_x, current_y - 1),
                          (current_x, current_y + 1), (current_x + 1, current_y)]:
                 if 0 <= x < n and 0 <= y < m:
                     if special_map[x][y] == 2:
-                        return paths[current_x][current_y] + [(x, y)]
+                        return list(paths[current_x][current_y] + [(x, y)])[1:]
                     elif special_map[x][y]:
                         q.append((x, y))
                         paths[x][y] = paths[current_x][current_y] +[(x, y)]
@@ -235,14 +239,19 @@ class Map:
 
 def process_events(events, pacman):
     pacman.direction = 0
-    d = {K_LEFT: 3, K_RIGHT: 1, K_UP: 4, K_DOWN: 2}
+    directions = {K_LEFT: 3, K_RIGHT: 1, K_UP: 4, K_DOWN: 2}
     for event in events:
         if (event.type == QUIT) or (event.type == KEYDOWN and event.key == K_ESCAPE):
             sys.exit(0)
-        elif event.type == KEYDOWN and event.key in d:
-            pacman.direction = d[event.key]
+        elif event.type == KEYDOWN and event.key in directions:
+            pacman.direction = directions[event.key]
+            pacman.path = []
+            pacman._i = 0
     if pacman.direction == 0:
-        x, y = pacman.find_path()[1]
+        if pacman._i == len(pacman.path):
+            pacman.path = pacman.find_path()
+            pacman._i = 0
+        x, y = pacman.path[pacman._i]
         if x > pacman.x:
             pacman.direction = 1  # to the right
         elif x < floor(pacman.x):
